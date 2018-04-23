@@ -43,6 +43,7 @@ namespace Unosquare.Net
     {
         private readonly ConcurrentDictionary<Guid, HttpListenerContext> _ctxQueue;
         private readonly ConcurrentDictionary<HttpConnection, object> _connections;
+        private System.Threading.SemaphoreSlim _ctxQeueSem = new System.Threading.SemaphoreSlim(0);
         private bool _disposed;
 #if SSL
         IMonoTlsProvider tlsProvider;
@@ -218,13 +219,14 @@ namespace Unosquare.Net
         {
             while (true)
             {
+                await _ctxQeueSem.WaitAsync();
+
                 foreach (var key in _ctxQueue.Keys)
                 {
                     if (_ctxQueue.TryRemove(key, out var context))
                         return context;
+                    break;
                 }
-
-                await Task.Delay(10);
             }
         }
 
@@ -232,6 +234,8 @@ namespace Unosquare.Net
         {
             if (_ctxQueue.TryAdd(context.Id, context) == false)
                 throw new Exception("Unable to register context");
+
+            _ctxQeueSem.Release();
         }
 
         internal void UnregisterContext(HttpListenerContext context) => _ctxQueue.TryRemove(context.Id, out var _);
